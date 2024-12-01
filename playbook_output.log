@@ -1,0 +1,32 @@
+
+PLAY [Patch and update the operating system] ***********************************
+
+TASK [Gathering Facts] *********************************************************
+[WARNING]: Platform linux on host 159.65.152.198 is using the discovered Python
+interpreter at /usr/bin/python3.9, but future installation of another Python
+interpreter could change the meaning of that path. See
+https://docs.ansible.com/ansible-
+core/2.17/reference_appendices/interpreter_discovery.html for more information.
+ok: [159.65.152.198]
+
+TASK [Ensure the package manager cache is updated (Ubuntu)] ********************
+skipping: [159.65.152.198]
+
+TASK [Upgrade all packages to their latest versions (Ubuntu)] ******************
+skipping: [159.65.152.198]
+
+TASK [Ensure the package manager cache is updated (CentOS/RHEL)] ***************
+ok: [159.65.152.198]
+
+TASK [Upgrade all packages to their latest versions (CentOS/RHEL using yum)] ***
+ok: [159.65.152.198]
+
+TASK [Upgrade all packages to their latest versions (CentOS/RHEL using dnf)] ***
+ok: [159.65.152.198]
+
+TASK [Reboot the system if kernel or critical packages were updated] ***********
+changed: [159.65.152.198]
+
+PLAY RECAP *********************************************************************
+159.65.152.198             : ok=5    changed=1    unreachable=0    failed=0    skipped=2    rescued=0    ignored=0   
+
