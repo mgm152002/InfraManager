@@ -27,7 +27,7 @@ app.add_middleware(
 )
 
 
-@app.get("/GetAll")
+@app.get("/GetAllDO")
 async def root():
    alldroplets = {"droplets":[],}
 
@@ -44,7 +44,7 @@ async def root():
 
      
    return(alldroplets)
-@app.post("/SpoolDown")
+@app.post("/SpoolDownDO")
 async def shutdowm():
     droplets =  manager.get_all_droplets()
     for droplet in droplets:
@@ -53,7 +53,7 @@ async def shutdowm():
         except:
             return ("error occured")
     return{"shutdown":"ok","status_code":200}
-@app.post("/SpoolUp")
+@app.post("/SpoolUpDO")
 async def SpoolUp():
     droplets =  manager.get_all_droplets()
     for droplet in droplets:
@@ -62,18 +62,24 @@ async def SpoolUp():
         except:
             return ("error occured")
     return{"poweron":"ok","status_code":200}
-@app.post("/SpoolDown/{id}")
+@app.post("/SpoolDownDO/{id}")
 async def SpoolDown(id:int):
-    droplet=manager.get_droplet(id)
-    droplet.power_off()
-    return{"status":200}
-@app.post('/SpoolUp/{id}')
+    try:
+        droplet=manager.get_droplet(id)
+        droplet.power_off()
+        return{"status":200}
+    except:
+        return{"error"}
+@app.post('/SpoolUpDO/{id}')
 async def SpoolUp(id:int):
-    droplet=manager.get_droplet(id)
-    droplet.power_on()
-    return{"status":200}
+    try:
+        droplet=manager.get_droplet(id)
+        droplet.power_on()
+        return{"status":200}
+    except:
+        return{"error"}
 
-@app.get('/Details/{id}')
+@app.get('/DetailsDO/{id}')
 async def Details(id:int):
     url=f'https://api.digitalocean.com/v2/droplets/{id}'
     print(url)
@@ -89,9 +95,9 @@ async def Details(id:int):
         print('Error:', e)
         return None
     
-@app.post("/autoOsPatchDigitalOcean/")
+@app.post("/autoOsPatchDO/{id}")
  
-async def Details(id: int, ssh: UploadFile = File(...)):
+async def Auto(id: int, ssh: UploadFile = File(...)):
     url = f'https://api.digitalocean.com/v2/droplets/{id}'
     print(url)
     
@@ -146,7 +152,7 @@ async def Details(id: int, ssh: UploadFile = File(...)):
         #os.remove("playbook_output.log")
 
         # Return the output log file as a response
-        return FileResponse(output_file, media_type="text/plain", filename="playbook_output.log")
+        return FileResponse(output_file, media_type="text/plain", filename="playbook_output.log" )
     
     except requests.exceptions.RequestException as e:
         print('Error during API request:', e)
