@@ -1,5 +1,4 @@
-import boto3.session
-from fastapi import FastAPI,UploadFile,File
+from fastapi import FastAPI,UploadFile,File,Query
 import json
 import digitalocean
 from dotenv import load_dotenv
@@ -9,39 +8,13 @@ import subprocess
 from fastapi.responses import FileResponse
 import boto3
 
-
-regions= [
-    #'ap-east-1',
-    'ap-northeast-1',
-    'ap-northeast-2',
-    'ap-south-1',
-    'ap-southeast-1',
-    'ap-southeast-2',
-    'ca-central-1',
-    'eu-central-1',
-    'eu-north-1',
-    'eu-west-1',
-    'eu-west-2',
-    'eu-west-3',
-    #'me-south-1',
-    'sa-east-1',
-    'us-east-1',
-    'us-east-2',
-    'us-west-1',
-    'us-west-2'
-    ]
+from typing import List, Optional
 
 # Load environment variables from a .env file (if using .env)
 load_dotenv()
 import os
 manager = digitalocean.Manager(token=os.getenv("Digital_Token"))
 from fastapi.middleware.cors import CORSMiddleware
-
-session = boto3.Session(
-    aws_access_key_id=os.getenv("aws_accesskey"),
-    aws_secret_access_key=os.getenv("aws_secretekey"),
-    region_name="us-west-1"
-)
 
 
 
@@ -190,60 +163,332 @@ async def Auto(id: int, ssh: UploadFile = File(...)):
         return {"error": str(e)}
 
 
-@app.get("/GetEc2")
 
-async def getEc2():
-    regions_dict = {}  # Initialize the dictionary to store results
+def get_all_ec2_instances():
+    """
+    Retrieve EC2 instance details from all AWS regions.
+    """
+    ec2 = boto3.client("ec2")
+    regions = ec2.describe_regions()["Regions"]
+    region_names = [region["RegionName"] for region in regions]
+
+    all_instances = []
+
+    for region in region_names:
+        ec2_client = boto3.client("ec2", region_name=region)
+        try:
+            response = ec2_client.describe_instances()
+            for reservation in response["Reservations"]:
+                for instance in reservation["Instances"]:
+                    instance_info = {
+                        "Region": region,
+                        "InstanceId": instance["InstanceId"],
+                        "InstanceType": instance["InstanceType"],
+                        "State": instance["State"]["Name"],
+                        "LaunchTime": instance["LaunchTime"].strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+
+                    # Add tags if they exist
+                    if "Tags" in instance:
+                        instance_info["Tags"] = {tag["Key"]: tag["Value"] for tag in instance["Tags"]}
+
+                    # Add public IP if it exists
+                    if "PublicIpAddress" in instance:
+                        instance_info["PublicIpAddress"] = instance["PublicIpAddress"]
+
+                    all_instances.append(instance_info)
+        except Exception as e:
+            print(f"Error retrieving instances from region {region}: {str(e)}")
+
+    return all_instances
+
+
+@app.get("/GetAllEC2Regions")
+async def get_all_ec2_regions():
+    """
+    FastAPI endpoint to fetch all EC2 instances across all regions.
+    """
+    try:
+        instances = get_all_ec2_instances()
+        if instances:
+            return {"instances": instances, "status_code": 200}
+        else:
+            return {"error": "No EC2 instances found", "status_code": 404}
+    except Exception as e:
+        return {"error": str(e), "status_code": 500}
+
+
+
+
+
+
+
+# def shutdown_ec2_instances(region):
+#     """
+#     Shut down all running EC2 instances in a specified AWS region.
     
-    for region_name in regions:
-        print(f"Region Name: {region_name}")
-        
-        ec2 = session.resource('ec2', region_name=region_name)
-        instances = ec2.meta.client.describe_instances()
-        
-        instances_list = []  # Temporary list to store instances for this region
-        
-        for reservation in instances['Reservations']:
-            for instance1 in reservation['Instances']:
-                instance_info = {
-                    'InstanceId': instance1['InstanceId'],
-                    'InstanceType': instance1['InstanceType'],
-                    'State': instance1['State']['Name'],
-                    'LaunchTime': instance1['LaunchTime'].strftime("%Y-%m-%d %H:%M:%S"),
-                }
-                
-                # Add tags if they exist
-                if 'Tags' in instance1:
-                    instance_info['Tags'] = {tag['Key']: tag['Value'] for tag in instance1['Tags']}
-                
-                # Add public IP if it exists
-                if 'PublicIpAddress' in instance1:
-                    instance_info['PublicIpAddress'] = instance1['PublicIpAddress']
-                
-                instances_list.append(instance_info)
-        
-        # Assign the list of instances to the region key in the dictionary
-        if (instances_list!=[]):
-
-            regions_dict[region_name] = instances_list
-
-    return {"Ec2":[regions_dict]}
-
-@app.post("/StopEc2/{id}/{region}")
-
-def stopEc2(id:str,region:str):
-    ec2=session.client('ec2',region_name=region)
+#     Args:
+#         region (str): The AWS region name (e.g., 'us-east-1').
     
-    ec2.stop_instances(InstanceIds=[id])
-    return{"ok":200}
-@app.post("/StartEc2/{id}/{region}")
+#     Returns:
+#         dict: A summary of the stopped instances and any errors.
+#     """
+#     ec2_client = boto3.client('ec2', region_name=region)
+#     stopped_instances = []
+#     errors = []
 
-def stopEc2(id:str,region:str):
-    ec2=session.client('ec2',region_name=region)
+#     try:
+#         # Retrieve all instances in the specified region
+#         response = ec2_client.describe_instances(
+#             Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
+#         )
+
+#         # List of instance IDs to stop
+#         instance_ids = [
+#             instance["InstanceId"]
+#             for reservation in response["Reservations"]
+#             for instance in reservation["Instances"]
+#         ]
+
+#         if instance_ids:
+#             print(f"Stopping the following instances in {region}: {instance_ids}")
+#             stop_response = ec2_client.stop_instances(InstanceIds=instance_ids)
+
+#             # Capture the stopped instances
+#             for stopping_instance in stop_response["StoppingInstances"]:
+#                 stopped_instances.append({
+#                     "InstanceId": stopping_instance["InstanceId"],
+#                     "PreviousState": stopping_instance["PreviousState"]["Name"],
+#                     "CurrentState": stopping_instance["CurrentState"]["Name"]
+#                 })
+#         else:
+#             print(f"No running instances found in region {region}.")
+        
+#     except Exception as e:
+#         errors.append(str(e))
+#         print(f"Error stopping instances in region {region}: {str(e)}")
+
+#     return {"StoppedInstances": stopped_instances, "Errors": errors}
+
+
+# if __name__ == "__main__":
+#     # Example usage
+#     region_name = "us-west-1"  # Replace with the desired AWS region
+#     result = shutdown_ec2_instances(region_name)
+#     print("Shutdown Summary:")
+#     print(result)
+
+
+# @app.post("/shutdown-ec2/{region}")
+# async def shutdown_region(region: str):
+#     result = shutdown_ec2_instances(region)
+#     return result
+def shutdown_ec2_instances(region, instance_ids=None):
+    """
+    Shut down EC2 instances in a specified AWS region. Stops specified instances 
+    or all running instances if no IDs are provided.
+
+    Args:
+        region (str): The AWS region name (e.g., 'us-east-1').
+        instance_ids (list[str], optional): List of instance IDs to stop. Defaults to None.
+
+    Returns:
+        dict: A summary of the stopped instances and any errors.
+    """
+    ec2_client = boto3.client('ec2', region_name=region)
+    stopped_instances = []
+    errors = []
+
+    try:
+        if not instance_ids:
+            # Retrieve all running instances in the specified region
+            response = ec2_client.describe_instances(
+                Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
+            )
+
+            # List of all running instance IDs
+            instance_ids = [
+                instance["InstanceId"]
+                for reservation in response["Reservations"]
+                for instance in reservation["Instances"]
+            ]
+
+        if instance_ids:
+            print(f"Stopping the following instances in {region}: {instance_ids}")
+            stop_response = ec2_client.stop_instances(InstanceIds=instance_ids)
+
+            # Capture the stopped instances
+            for stopping_instance in stop_response["StoppingInstances"]:
+                stopped_instances.append({
+                    "InstanceId": stopping_instance["InstanceId"],
+                    "PreviousState": stopping_instance["PreviousState"]["Name"],
+                    "CurrentState": stopping_instance["CurrentState"]["Name"]
+                })
+        else:
+            print(f"No running instances found in region {region}.")
+        
+    except Exception as e:
+        errors.append(str(e))
+        print(f"Error stopping instances in region {region}: {str(e)}")
+
+    return {"StoppedInstances": stopped_instances, "Errors": errors}
+
+@app.post("/shutdown-ec2/{region}")
+async def shutdown_region(region: str, instance_ids: Optional[List[str]] = Query(None)):
+    """
+    FastAPI endpoint to stop EC2 instances in a specified region.
     
-    ec2.start_instances(InstanceIds=[id])
-    return{"ok":200}
-   
+    Args:
+        region (str): The AWS region name (e.g., 'us-east-1').
+        instance_ids (list[str], optional): List of instance IDs to stop.
+    
+    Returns:
+        dict: Shutdown summary.
+    """
+    try:
+        result = shutdown_ec2_instances(region, instance_ids)
+        return result
+    except Exception as e:
+        return {"error": str(e)}    
 
 
 
+# def start_ec2_instances(region):
+#     """
+#     Start all stopped EC2 instances in a specified AWS region.
+    
+#     Args:
+#         region (str): The AWS region name (e.g., 'us-east-1').
+    
+#     Returns:
+#         dict: A summary of the started instances and any errors.
+#     """
+#     ec2_client = boto3.client('ec2', region_name=region)
+#     started_instances = []
+#     errors = []
+
+#     try:
+#         # Retrieve all instances in the specified region
+#         response = ec2_client.describe_instances(
+#             Filters=[{"Name": "instance-state-name", "Values": ["stopped"]}]
+#         )
+
+#         # List of instance IDs to start
+#         instance_ids = [
+#             instance["InstanceId"]
+#             for reservation in response["Reservations"]
+#             for instance in reservation["Instances"]
+#         ]
+
+#         if instance_ids:
+#             print(f"Starting the following instances in {region}: {instance_ids}")
+#             start_response = ec2_client.start_instances(InstanceIds=instance_ids)
+
+#             # Capture the started instances
+#             for starting_instance in start_response["StartingInstances"]:
+#                 started_instances.append({
+#                     "InstanceId": starting_instance["InstanceId"],
+#                     "PreviousState": starting_instance["PreviousState"]["Name"],
+#                     "CurrentState": starting_instance["CurrentState"]["Name"]
+#                 })
+#         else:
+#             print(f"No stopped instances found in region {region}.")
+        
+#     except Exception as e:
+#         errors.append(str(e))
+#         print(f"Error starting instances in region {region}: {str(e)}")
+
+#     return {"StartedInstances": started_instances, "Errors": errors}
+
+
+# if __name__ == "__main__":
+#     # Example usage
+#     region_name = "us-west-1"  # Replace with the desired AWS region
+#     result = start_ec2_instances(region_name)
+#     print("Start Summary:")
+#     print(result)
+
+
+# @app.post("/start-ec2/{region}")
+# async def start_ec2(region: str):
+
+    """
+    FastAPI endpoint to start all stopped EC2 instances in a specified region.
+    """
+    try:
+        result = start_ec2_instances(region)
+        if result["StartedInstances"]:
+            return {"message": "Instances started successfully", "details": result}
+        else:
+            raise HTTPException(status_code=404, detail="No stopped instances found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+def start_ec2_instances(region, instance_ids=None):
+    """
+    Start EC2 instances in a specified AWS region. Starts specified instances 
+    or all stopped instances if no IDs are provided.
+
+    Args:
+        region (str): The AWS region name (e.g., 'us-east-1').
+        instance_ids (list[str], optional): List of instance IDs to start. Defaults to None.
+
+    Returns:
+        dict: A summary of the started instances and any errors.
+    """
+    ec2_client = boto3.client('ec2', region_name=region)
+    started_instances = []
+    errors = []
+
+    try:
+        if not instance_ids:
+            # Retrieve all stopped instances in the specified region
+            response = ec2_client.describe_instances(
+                Filters=[{"Name": "instance-state-name", "Values": ["stopped"]}]
+            )
+
+            # List of all stopped instance IDs
+            instance_ids = [
+                instance["InstanceId"]
+                for reservation in response["Reservations"]
+                for instance in reservation["Instances"]
+            ]
+
+        if instance_ids:
+            print(f"Starting the following instances in {region}: {instance_ids}")
+            start_response = ec2_client.start_instances(InstanceIds=instance_ids)
+
+            # Capture the started instances
+            for starting_instance in start_response["StartingInstances"]:
+                started_instances.append({
+                    "InstanceId": starting_instance["InstanceId"],
+                    "PreviousState": starting_instance["PreviousState"]["Name"],
+                    "CurrentState": starting_instance["CurrentState"]["Name"]
+                })
+        else:
+            print(f"No stopped instances found in region {region}.")
+        
+    except Exception as e:
+        errors.append(str(e))
+        print(f"Error starting instances in region {region}: {str(e)}")
+
+    return {"StartedInstances": started_instances, "Errors": errors}
+
+
+@app.post("/start-ec2/{region}")
+async def start_region(region: str, instance_ids: Optional[List[str]] = Query(None)):
+    """
+    FastAPI endpoint to start EC2 instances in a specified region.
+    
+    Args:
+        region (str): The AWS region name (e.g., 'us-east-1').
+        instance_ids (list[str], optional): List of instance IDs to start.
+    
+    Returns:
+        dict: Start summary.
+    """
+    try:
+        result = start_ec2_instances(region, instance_ids)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
