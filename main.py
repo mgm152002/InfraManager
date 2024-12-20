@@ -1,3 +1,4 @@
+import boto3.session
 from fastapi import FastAPI,UploadFile,File
 import json
 import digitalocean
@@ -6,8 +7,29 @@ import requests
 import urllib
 import subprocess
 from fastapi.responses import FileResponse
+import boto3
 
 
+regions= [
+    #'ap-east-1',
+    'ap-northeast-1',
+    'ap-northeast-2',
+    'ap-south-1',
+    'ap-southeast-1',
+    'ap-southeast-2',
+    'ca-central-1',
+    'eu-central-1',
+    'eu-north-1',
+    'eu-west-1',
+    'eu-west-2',
+    'eu-west-3',
+    #'me-south-1',
+    'sa-east-1',
+    'us-east-1',
+    'us-east-2',
+    'us-west-1',
+    'us-west-2'
+    ]
 
 # Load environment variables from a .env file (if using .env)
 load_dotenv()
@@ -168,8 +190,60 @@ async def Auto(id: int, ssh: UploadFile = File(...)):
         return {"error": str(e)}
 
 
+@app.get("/GetEc2")
 
-
-
+async def getEc2():
+    regions_dict = {}  # Initialize the dictionary to store results
     
+    for region_name in regions:
+        print(f"Region Name: {region_name}")
+        
+        ec2 = session.resource('ec2', region_name=region_name)
+        instances = ec2.meta.client.describe_instances()
+        
+        instances_list = []  # Temporary list to store instances for this region
+        
+        for reservation in instances['Reservations']:
+            for instance1 in reservation['Instances']:
+                instance_info = {
+                    'InstanceId': instance1['InstanceId'],
+                    'InstanceType': instance1['InstanceType'],
+                    'State': instance1['State']['Name'],
+                    'LaunchTime': instance1['LaunchTime'].strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                
+                # Add tags if they exist
+                if 'Tags' in instance1:
+                    instance_info['Tags'] = {tag['Key']: tag['Value'] for tag in instance1['Tags']}
+                
+                # Add public IP if it exists
+                if 'PublicIpAddress' in instance1:
+                    instance_info['PublicIpAddress'] = instance1['PublicIpAddress']
+                
+                instances_list.append(instance_info)
+        
+        # Assign the list of instances to the region key in the dictionary
+        if (instances_list!=[]):
+
+            regions_dict[region_name] = instances_list
+
+    return {"Ec2":[regions_dict]}
+
+@app.post("/StopEc2/{id}/{region}")
+
+def stopEc2(id:str,region:str):
+    ec2=session.client('ec2',region_name=region)
+    
+    ec2.stop_instances(InstanceIds=[id])
+    return{"ok":200}
+@app.post("/StartEc2/{id}/{region}")
+
+def stopEc2(id:str,region:str):
+    ec2=session.client('ec2',region_name=region)
+    
+    ec2.start_instances(InstanceIds=[id])
+    return{"ok":200}
+   
+
+
 
