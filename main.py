@@ -1,4 +1,4 @@
-from fastapi import FastAPI,UploadFile,File,Query
+from fastapi import FastAPI,UploadFile,File,Query,Form 
 import json
 import digitalocean
 from dotenv import load_dotenv
@@ -7,7 +7,8 @@ import urllib
 import subprocess
 from fastapi.responses import FileResponse
 import boto3
-
+import os
+from fastapi.responses import HTMLResponse
 from typing import List, Optional
 
 # Load environment variables from a .env file (if using .env)
@@ -492,3 +493,185 @@ async def start_region(region: str, instance_ids: Optional[List[str]] = Query(No
         return result
     except Exception as e:
         return {"error": str(e)}
+    
+
+
+
+INSTANCE_TYPES = ["t2.micro", "t2.small", "t2.medium", "m5.large", "m5.xlarge"]
+AWS_REGIONS = ["us-east-1", "us-west-1", "eu-west-1", "ap-south-1"]
+
+@app.get("/", response_class=HTMLResponse)
+async def create_instance_form():
+    instance_type_options = "".join(
+        f"<option value='{t}'>{t}</option>" for t in INSTANCE_TYPES
+    )
+    region_options = "".join(
+        f"<option value='{r}'>{r}</option>" for r in AWS_REGIONS
+    )
+
+    form_html = f"""
+    <html>
+        <head>
+            <title>Create EC2 Instance</title>
+            <style>
+                body {{
+                    font-family: 'Arial', sans-serif;
+                    background-color: #f4f4f9;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                }}
+                h1 {{
+                    color: #333;
+                    text-align: center;
+                    margin-bottom: 20px;
+                }}
+                form {{
+                    background-color: #fff;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                    width: 400px;
+                    padding: 30px;
+                    box-sizing: border-box;
+                    transition: transform 0.3s ease, box-shadow 0.3s ease;
+                }}
+                form:hover {{
+                    transform: scale(1.02);
+                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+                }}
+                label {{
+                    display: block;
+                    margin-bottom: 8px;
+                    color: #555;
+                    font-weight: bold;
+                }}
+                input[type="text"], select {{
+                    width: 100%;
+                    padding: 10px;
+                    margin-bottom: 20px;
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    font-size: 16px;
+                    box-sizing: border-box;
+                    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+                }}
+                input[type="text"]:focus, select:focus {{
+                    border-color: #007BFF;
+                    box-shadow: 0 0 4px #007BFF;
+                }}
+                input[type="submit"] {{
+                    width: 100%;
+                    background-color: #007BFF;
+                    color: #fff;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 12px;
+                    font-size: 16px;
+                    cursor: pointer;
+                    transition: background-color 0.3s ease, transform 0.2s ease;
+                }}
+                input[type="submit"]:hover {{
+                    background-color: #0056b3;
+                    transform: translateY(-2px);
+                }}
+                input[type="submit"]:active {{
+                    transform: translateY(0);
+                }}
+                @media (max-width: 500px) {{
+                    form {{
+                        width: 90%;
+                    }}
+                }}
+            </style>
+        </head>
+        <body>
+            <h1>Create a New EC2 Instance</h1>
+            <form action="/create-instance" method="post">
+                <label for="instance_name">Instance Name:</label>
+                <input type="text" id="instance_name" name="instance_name" required>
+                <label for="instance_type">Instance Type:</label>
+                <select id="instance_type" name="instance_type">
+                    {instance_type_options}
+                </select>
+                <label for="region">Region:</label>
+                <select id="region" name="region">
+                    {region_options}
+                </select>
+                <input type="submit" value="Create Instance">
+            </form>
+        </body>
+    </html>
+    """
+    return form_html    
+
+
+
+@app.post("/create-instance")
+async def create_instance(
+    instance_name: str = Form(...),
+    instance_type: str = Form(...),
+    region: str = Form(...),
+):
+    """
+    Create an EC2 instance based on user input.
+    """
+    try:
+        # Create EC2 client
+        ec2 = boto3.client("ec2", region_name=region)
+
+        # Launch the instance
+        response = ec2.run_instances(
+            ImageId="ami-0819a8650d771b8be",  # Replace with an appropriate AMI ID for the region
+            InstanceType=instance_type,
+            MinCount=1,
+            MaxCount=1,
+            TagSpecifications=[
+                {
+                    "ResourceType": "instance",
+                    "Tags": [{"Key": "Name", "Value": instance_name}],
+                }
+            ],
+        )
+
+        instance_id = response["Instances"][0]["InstanceId"]
+        return {
+            "message": "Instance created successfully!",
+            "InstanceId": instance_id,
+            "InstanceName": instance_name,
+            "InstanceType": instance_type,
+            "Region": region,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+    
+
+
+
+aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+aws_default_region = os.getenv("AWS_DEFAULT_REGION")
+
+# Verify credentials are loaded
+if not aws_access_key_id or not aws_secret_access_key:
+    raise ValueError("AWS credentials not found in the environment.")
+
+# Configure Boto3 with credentials
+session = boto3.Session(
+    aws_access_key_id=aws_access_key_id,
+    aws_secret_access_key=aws_secret_access_key,
+    region_name=aws_default_region,
+)
+
+# Example: Use the session to interact with AWS
+ec2 = session.client("ec2")
+
+# List EC2 instances as a test
+try:
+    response = ec2.describe_instances()
+    print("Successfully connected to AWS and retrieved instances:")
+    print(response)
+except Exception as e:
+    print(f"Error connecting to AWS: {e}")
